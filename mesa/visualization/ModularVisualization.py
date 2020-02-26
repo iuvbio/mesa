@@ -97,10 +97,15 @@ Client -> Server:
 
 """
 import os
+import simplejson as json
+from typing import Any, Dict, Union
+
 import tornado.autoreload
+from tornado.concurrent import Future
 import tornado.ioloop
 import tornado.web
 import tornado.websocket
+from tornado.websocket import WebSocketClosedError
 import tornado.escape
 import tornado.gen
 import webbrowser
@@ -168,7 +173,35 @@ class PageHandler(tornado.web.RequestHandler):
                     scripts=self.application.js_code)
 
 
-class SocketHandler(tornado.websocket.WebSocketHandler):
+class JSONWebSocketHandler(tornado.websocket.WebSocketHandler):
+    """ This class only overwrites `write_message` """
+    def write_message(
+        self, message: Union[bytes, str, Dict[str, Any]], binary: bool = False
+    ) -> "Future[None]":
+        """Sends the given message to the client of this Web Socket.
+        The message may be either a string or a dict (which will be
+        encoded as json).  If the ``binary`` argument is false, the
+        message will be sent as utf8; in binary mode any byte string
+        is allowed.
+        If the connection is already closed, raises `WebSocketClosedError`.
+        Returns a `.Future` which can be used for flow control.
+        .. versionchanged:: 3.2
+           `WebSocketClosedError` was added (previously a closed connection
+           would raise an `AttributeError`)
+        .. versionchanged:: 4.3
+           Returns a `.Future` which can be used for flow control.
+        .. versionchanged:: 5.0
+           Consistently raises `WebSocketClosedError`. Previously could
+           sometimes raise `.StreamClosedError`.
+        """
+        if self.ws_connection is None or self.ws_connection.is_closing():
+            raise WebSocketClosedError()
+        if isinstance(message, dict):
+            message = json.dumps(message).replace("</", "<\\/")
+        return self.ws_connection.write_message(message, binary=binary)
+
+
+class SocketHandler(JSONWebSocketHandler):
     """ Handler for websocket. """
     def open(self):
         if self.application.verbose:
